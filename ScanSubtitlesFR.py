@@ -16,7 +16,10 @@ Utilisation dans Resolve :
 Prerequis :
   Python 3 officiel python.org installe
   pip3 install anthropic
-  export ANTHROPIC_API_KEY="sk-ant-..."
+  Cle API : fichier ~/.anthropic/api_key contenant la cle (sk-ant-...)
+  — cree automatiquement par l'installeur Resolve Subtitles.
+  (La variable d'environnement ANTHROPIC_API_KEY marche aussi, mais uniquement
+  si Resolve est lance depuis un terminal — pas depuis le Dock/Finder.)
 """
 
 import os
@@ -231,9 +234,17 @@ log(f"{len(entries)} sous-titres a analyser.")
 # ============== Appel Claude ==============
 api_key = os.environ.get("ANTHROPIC_API_KEY")
 if not api_key:
+    # Fallback : fichier cree par l'installeur Resolve Subtitles
+    try:
+        with open(os.path.expanduser("~/.anthropic/api_key")) as _f:
+            api_key = _f.read().strip()
+    except OSError:
+        pass
+if not api_key:
     fail(
-        "ANTHROPIC_API_KEY absente.\n"
-        "Verifier : launchctl setenv ANTHROPIC_API_KEY \"$(cat ~/.anthropic/api_key)\""
+        "Cle API Claude introuvable.\n"
+        "Relance l'installeur Resolve Subtitles pour la configurer, ou cree\n"
+        "le fichier ~/.anthropic/api_key contenant la cle (sk-ant-...)."
     )
 
 try:

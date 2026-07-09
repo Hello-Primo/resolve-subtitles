@@ -10,7 +10,10 @@ Utilisation dans Resolve :
 
 Prerequis :
   pip3 install anthropic
-  export ANTHROPIC_API_KEY="sk-ant-..."  (dans ~/.zshrc)
+  Cle API : fichier ~/.anthropic/api_key contenant la cle (sk-ant-...)
+  — cree automatiquement par l'installeur Resolve Subtitles.
+  (La variable d'environnement ANTHROPIC_API_KEY marche aussi, mais uniquement
+  si Resolve est lance depuis un terminal — pas depuis le Dock/Finder.)
 """
 
 import os
@@ -336,10 +339,17 @@ log(f"{len(entries)} sous-titres FR a traduire.")
 # ============== Claude API ==============
 api_key = os.environ.get("ANTHROPIC_API_KEY")
 if not api_key:
+    # Fallback : fichier cree par l'installeur Resolve Subtitles
+    try:
+        with open(os.path.expanduser("~/.anthropic/api_key")) as _f:
+            api_key = _f.read().strip()
+    except OSError:
+        pass
+if not api_key:
     fail(
-        "Variable ANTHROPIC_API_KEY absente.\n"
-        "Ajoute dans ~/.zshrc :  export ANTHROPIC_API_KEY=\"sk-ant-...\"\n"
-        "Puis relance Resolve depuis un terminal : open -a 'DaVinci Resolve'"
+        "Cle API Claude introuvable.\n"
+        "Relance l'installeur Resolve Subtitles pour la configurer, ou cree\n"
+        "le fichier ~/.anthropic/api_key contenant la cle (sk-ant-...)."
     )
 
 try:

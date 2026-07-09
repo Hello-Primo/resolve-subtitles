@@ -1,6 +1,6 @@
 # Resolve Subtitles — scripts sous-titres DaVinci Resolve (Primo-Studio)
 
-Trois scripts Python pour DaVinci Resolve qui corrigent et traduisent la piste de sous-titres de la timeline active via l'API Claude (Anthropic).
+Trois scripts pour DaVinci Resolve qui corrigent et traduisent la piste de sous-titres de la timeline active via l'API Claude (Anthropic).
 
 | Script | Rôle |
 |---|---|
@@ -8,51 +8,72 @@ Trois scripts Python pour DaVinci Resolve qui corrigent et traduisent la piste d
 | `ApplyCorrectionsFR.py` | Applique les corrections du rapport en créant une **nouvelle piste** de sous-titres FR corrigée (les sous-titres modifiés sont colorés en orange pour comparaison). |
 | `TranslateSubtitlesFR_EN.py` | Traduit la piste FR en anglais et l'ajoute sur une nouvelle piste de sous-titres. |
 
-## Prérequis
+---
 
-- DaVinci Resolve **Studio** (l'API scripting est requise)
-- Python 3 officiel [python.org](https://www.python.org/downloads/) (pas celui de Homebrew)
-- Le SDK Anthropic :
-  ```bash
-  pip3 install anthropic
-  ```
-- Une clé API Anthropic dans l'environnement :
-  ```bash
-  # dans ~/.zshrc
-  export ANTHROPIC_API_KEY="sk-ant-..."
-  # et pour que Resolve (app GUI) la voie :
-  launchctl setenv ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"
-  ```
-  ⚠️ `launchctl setenv` doit être relancé après chaque redémarrage du Mac (ou ajouté à un LaunchAgent).
+## 🚀 Installation en 2 minutes (aucune connaissance technique requise)
 
-## Installation
+1. **Télécharge** `Installer-Resolve-Subtitles.zip` depuis la page [Releases](../../releases/latest) de ce repo.
+2. **Double-clique** sur le zip téléchargé (il se décompresse tout seul dans Téléchargements).
+3. **Double-clique** sur l'app **« Installer Resolve Subtitles »**. macOS affiche une confirmation du type « app téléchargée depuis Internet — Apple a vérifié qu'elle ne contient pas de logiciel malveillant » : clique **Ouvrir**.
+4. **Suis les fenêtres** : l'assistant installe tout automatiquement. Quand il te demande la **clé API Claude**, colle celle que Néto t'a envoyée (elle commence par `sk-ant-`). Si Python doit être installé, une fenêtre d'installation classique s'ouvre : clique « Continuer » puis « Installer » jusqu'au bout.
+5. **Redémarre DaVinci Resolve** (Cmd+Q puis rouvre).
 
-Copier les 3 scripts dans le dossier scripts Utility de Resolve :
+C'est tout ✅ — les scripts apparaissent dans le menu **Espace de travail (Workspace) → Scripts**.
 
-```bash
-cp *.py "$HOME/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/"
-```
-
-Puis redémarrer Resolve (ou rouvrir le menu Scripts).
+> 💡 Pour mettre à jour plus tard : retélécharge le zip et relance l'app, elle écrase les anciennes versions (ta clé API est conservée).
 
 ## Utilisation
 
-Dans Resolve, timeline ouverte avec une piste de sous-titres active :
+Dans Resolve, timeline ouverte avec une piste de sous-titres :
 
-1. **Workspace → Scripts → ScanSubtitlesFR** — lance l'analyse, lis le rapport dans la console.
-2. **Workspace → Scripts → ApplyCorrectionsFR** — crée la piste corrigée (nécessite un rapport de moins de 24 h).
+1. **Workspace → Scripts → ScanSubtitlesFR** — analyse et affiche le rapport des fautes dans la console.
+2. **Workspace → Scripts → ApplyCorrectionsFR** — crée la piste FR corrigée (lance le scan d'abord ; le rapport doit dater de moins de 24 h).
 3. **Workspace → Scripts → TranslateSubtitlesFR_EN** — traduit la piste FR en EN sur une nouvelle piste.
 
-### Mode speaker
+Au lancement, un popup demande le **mode speaker** :
+- **Single** — une seule personne parle (le plus courant et le plus fiable)
+- **Multi Auto** — plusieurs intervenants, détection automatique d'après le texte
+- **Multi Visual** — plusieurs intervenants, avec analyse d'images de la timeline (le plus précis)
 
-`ScanSubtitlesFR` et `TranslateSubtitlesFR_EN` proposent 3 modes (popup au lancement, ou valeur fixe via `SPEAKER_MODE` en tête de script) :
+## Dépannage
 
-- `single` — une seule personne parle (le plus simple et le plus fiable)
-- `multi_auto` — plusieurs intervenants, détection automatique
-- `multi_visual` — plusieurs intervenants, avec analyse visuelle
+| Problème | Solution |
+|---|---|
+| Les scripts n'apparaissent pas dans le menu Scripts | Quitte complètement Resolve (Cmd+Q) et rouvre-le — il ne scanne les scripts qu'au démarrage. |
+| « Python 3 was not found » au lancement d'un script | Relance l'app « Installer Resolve Subtitles » : elle installe le Python officiel (Resolve ne détecte ni Homebrew ni le Python d'Xcode). |
+| « Clé API Claude introuvable » | Relance l'app « Installer Resolve Subtitles » et colle la clé quand elle est demandée. |
+| J'ai cliqué « Annuler » sur la fenêtre au premier lancement de l'app | Re-double-clique l'app et clique « Ouvrir ». |
+| macOS dit « Apple n'a pas pu vérifier que l'app ne contient pas de logiciel malveillant » | Ouvre **Réglages Système → Confidentialité et sécurité**, descends en bas : clique **« Ouvrir quand même »** à côté du nom de l'app, puis confirme. (Une seule fois — concerne la version non encore notarisée.) |
+| Autre souci | Un fichier `ResolveSubtitles-Install.log` est déposé sur le Bureau en cas d'erreur : envoie-le à Néto (sinon il est dans `~/Library/Logs/`). |
 
-## Notes techniques
+---
+
+## Pour les devs
+
+### Installation manuelle (sans l'app)
+
+```bash
+# 1. Python officiel python.org requis (PAS Homebrew — Resolve ne le détecte pas)
+# 2. SDK Claude
+/Library/Frameworks/Python.framework/Versions/Current/bin/python3 -m pip install anthropic
+# 3. Scripts
+cp *.py "$HOME/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/"
+# 4. Clé API (au choix : fichier OU variable d'environnement)
+mkdir -p ~/.anthropic && echo "sk-ant-..." > ~/.anthropic/api_key && chmod 600 ~/.anthropic/api_key
+```
+
+Les scripts cherchent la clé dans `ANTHROPIC_API_KEY` (env) puis dans `~/.anthropic/api_key` (fichier).
+
+### Reconstruire l'app d'installation
+
+```bash
+bash installer/build_app.sh 1.0.0
+```
+
+Nécessite le certificat « Developer ID Application: Primo Studio » dans le trousseau et la clé ASC de notarisation (machine de Néto). Produit `build/Installer-Resolve-Subtitles.zip`, à attacher à la Release GitHub.
+
+### Notes techniques
 
 - L'API Resolve ne permet pas de modifier le texte d'un sous-titre existant : les corrections passent par l'export/import d'un SRT sur une **nouvelle piste** — l'originale n'est jamais touchée.
-- Modèle utilisé : `claude-sonnet-4-6` (configurable via `MODEL` en tête de chaque script).
-- Les scripts traitent par lots de 150 sous-titres (`BATCH_SIZE`).
+- Modèle : `claude-sonnet-4-6` (variable `MODEL` en tête de chaque script). Lots de 150 sous-titres (`BATCH_SIZE`).
+- Le menu Workspace → Scripts est contextuel à la page : le dossier `Utility/` est le seul visible depuis **toutes** les pages.
