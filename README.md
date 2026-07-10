@@ -43,7 +43,6 @@ Au lancement, un popup demande le **mode speaker** :
 | « Python 3 was not found » au lancement d'un script | Relance l'app « Installer Resolve Subtitles » : elle installe le Python officiel (Resolve ne détecte ni Homebrew ni le Python d'Xcode). |
 | « Clé API Claude introuvable » | Relance l'app « Installer Resolve Subtitles » et colle la clé quand elle est demandée. |
 | J'ai cliqué « Annuler » sur la fenêtre au premier lancement de l'app | Re-double-clique l'app et clique « Ouvrir ». |
-| macOS dit « Apple n'a pas pu vérifier que l'app ne contient pas de logiciel malveillant » | Ouvre **Réglages Système → Confidentialité et sécurité**, descends en bas : clique **« Ouvrir quand même »** à côté du nom de l'app, puis confirme. (Une seule fois — concerne la version non encore notarisée.) |
 | Autre souci | Un fichier `ResolveSubtitles-Install.log` est déposé sur le Bureau en cas d'erreur : envoie-le à Néto (sinon il est dans `~/Library/Logs/`). |
 
 ---
