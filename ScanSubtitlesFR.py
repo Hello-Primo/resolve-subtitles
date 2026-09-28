@@ -89,6 +89,21 @@ def fail(msg, code=1):
         notify("Scan sous-titres FR - ERREUR", msg[:120])
     except Exception:
         pass
+    # Popup visible (la Console Resolve ne s'ouvre pas sur tous les postes),
+    # sauf si c'est l'utilisateur qui a annule
+    if not msg.startswith("Annule"):
+        try:
+            safe = msg.replace("\\", "\\\\").replace('"', '\\"').replace("\n", '" & return & "')
+            subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to activate\n'
+                 f'display dialog "Le scan n\'a pas pu aller au bout :" & return & return & "{safe}" '
+                 'with title "Vérification des sous-titres FR" buttons {"OK"} '
+                 'default button "OK" with icon caution'],
+                capture_output=True, timeout=300
+            )
+        except Exception:
+            pass
     sys.exit(code)
 
 
@@ -1606,15 +1621,159 @@ try:
 except Exception as e:
     log(f"Sauvegarde du rapport echouee : {e}")
 
-# Notification finale macOS
-if fautes:
-    notify(
-        "Scan termine",
-        f"{len(fautes)} faute(s) detectee(s) sur {len(entries)} sous-titres. "
-        f"Lance ApplyCorrectionsFR pour appliquer."
+# ============== Resultat visible : rapport HTML + popup ==============
+# La Console Resolve ne s'ouvre pas sur tous les postes (droits d'accessibilite) :
+# le resultat doit toujours s'afficher dans un popup, fautes ou pas.
+import html as _html
+import difflib
+
+HTML_REPORT_PATH = os.path.expanduser("~/Desktop/Fautes sous-titres FR.html")
+
+
+def _diff_ops(before, after):
+    """Diff mot a mot : (tokens avant, tokens apres, opcodes)."""
+    tokenize = lambda s: re.findall(r"\w+|\s+|[^\w\s]", s)
+    a, b = tokenize(before), tokenize(after)
+    return a, b, difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes()
+
+
+def diff_pairs(before, after):
+    """Changements visibles, ex. [('senti', 'sentie'), ('', ',')]."""
+    a, b, ops = _diff_ops(before, after)
+    pairs = [("".join(a[i1:i2]).strip(), "".join(b[j1:j2]).strip())
+             for op, i1, i2, j1, j2 in ops if op != "equal"]
+    return [p for p in pairs if p[0] or p[1]]
+
+
+def diff_html(before, after):
+    """Surligne ce qui change : supprime en rouge barre, ajoute en vert."""
+    a, b, ops = _diff_ops(before, after)
+    old, new = [], []
+    for op, i1, i2, j1, j2 in ops:
+        before_part = _html.escape("".join(a[i1:i2]))
+        after_part = _html.escape("".join(b[j1:j2]))
+        if op == "equal":
+            old.append(before_part)
+            new.append(after_part)
+        else:
+            if before_part:
+                old.append(f"<del>{before_part}</del>")
+            if after_part:
+                new.append(f"<ins>{after_part}</ins>")
+    return "".join(old), "".join(new)
+
+
+def who_speaks_summary(context):
+    speakers = (context or {}).get("speakers") or []
+    if len(speakers) > 1:
+        return ", ".join(f"{sp.get('name', '?')} ({gender_word(sp.get('gender'))})" for sp in speakers)
+    return f"1 personne : {'une femme' if (context or {}).get('narrator_gender') == 'feminin' else 'un homme'}"
+
+
+def write_html_report(fautes, total, timeline_name):
+    """Rapport lisible sur le Bureau. Retourne le chemin, ou None si echec."""
+    show_speaker = bool(subtitle_speakers_map)
+    rows = []
+    for f in fautes:
+        old, new = diff_html(f["text"], f["suggested"])
+        speaker = (f"<td>{_html.escape(subtitle_speakers_map.get(f['idx'], '?'))}</td>"
+                   if show_speaker else "")
+        rows.append(
+            f"<tr><td class='n'>{f['idx']}</td>"
+            f"<td class='tc'>{_html.escape(f['timecode'].split(',')[0])}</td>{speaker}"
+            f"<td class='txt'>{old}</td><td class='txt'>{new}</td></tr>"
+        )
+    if fautes:
+        speaker_head = "<th>Qui parle</th>" if show_speaker else ""
+        body = (
+            f"<table><thead><tr><th>N°</th><th>Timecode</th>{speaker_head}"
+            f"<th>Écrit</th><th>Proposé</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+            "<p class='hint'>Rien n'a été modifié sur ta timeline. Pour appliquer ces corrections "
+            "sur une nouvelle piste : Workspace &gt; Scripts &gt; ApplyCorrectionsFR "
+            "(l'originale n'est pas touchée), ou corrige à la main.</p>"
+        )
+        verdict = f"{len(fautes)} faute(s) trouvée(s) sur {total} sous-titres"
+    else:
+        body = "<p class='ok'>Aucune faute trouvée. Tes sous-titres sont propres.</p>"
+        verdict = f"Aucune faute sur {total} sous-titres"
+    page = f"""<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fautes sous-titres FR</title>
+<style>
+:root {{ --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --line:#e3e2dc; --del:#fde2e1; --delfg:#b3261e; --ins:#dcf5e3; --insfg:#17663a; }}
+@media (prefers-color-scheme: dark) {{ :root {{ --bg:#1b1b1a; --fg:#ecebe6; --muted:#a3a29c; --line:#34332f; --del:#4a2322; --delfg:#ffb4ab; --ins:#1f3d2a; --insfg:#9be0b0; }} }}
+body {{ margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }}
+main {{ max-width:1000px; margin:0 auto; padding:32px 16px; }}
+h1 {{ font-size:22px; margin:0 0 4px; }}
+.meta {{ color:var(--muted); margin:0 0 24px; }}
+table {{ width:100%; border-collapse:collapse; }}
+th, td {{ text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; }}
+th {{ font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }}
+td.n, td.tc {{ font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--muted); }}
+td.txt {{ white-space:pre-wrap; }}
+del {{ background:var(--del); color:var(--delfg); text-decoration:line-through; border-radius:3px; padding:0 2px; }}
+ins {{ background:var(--ins); color:var(--insfg); text-decoration:none; font-weight:600; border-radius:3px; padding:0 2px; }}
+.ok {{ font-size:18px; }}
+.hint {{ color:var(--muted); margin-top:24px; }}
+</style></head><body><main>
+<h1>{_html.escape(verdict)}</h1>
+<p class="meta">Timeline « {_html.escape(timeline_name)} » · {time.strftime("%d/%m/%Y %H:%M")} · Qui parle : {_html.escape(who_speaks_summary(global_context))}</p>
+{body}
+</main></body></html>"""
+    try:
+        with open(HTML_REPORT_PATH, "w", encoding="utf-8") as fh:
+            fh.write(page)
+        log(f"Rapport lisible : {HTML_REPORT_PATH}")
+        return HTML_REPORT_PATH
+    except Exception as e:
+        log(f"Rapport HTML non ecrit : {e}")
+        return None
+
+
+def show_result_dialog(fautes, total, html_path):
+    """Popup de fin, toujours affiche. Propose d'ouvrir le rapport s'il y a des fautes."""
+    def change_text(f):
+        parts = []
+        for before, after in diff_pairs(f["text"], f["suggested"]):
+            if before and after:
+                parts.append(f"« {before} » → « {after} »")
+            elif after:
+                parts.append(f"ajouter « {after} »")
+            else:
+                parts.append(f"enlever « {before} »")
+        text = ", ".join(parts) or "espaces / typographie"
+        return text if len(text) <= 70 else text[:67] + "..."
+    if not fautes:
+        lines = [f"Aucune faute trouvée sur {total} sous-titres.", "", "Tes sous-titres sont propres."]
+        buttons, default = '{"OK"}', "OK"
+    else:
+        lines = [f"{len(fautes)} faute(s) trouvée(s) sur {total} sous-titres :", ""]
+        for f in fautes[:12]:
+            lines.append(f"n° {f['idx']}  ({f['timecode'].split(',')[0]}) :  {change_text(f)}")
+        if len(fautes) > 12:
+            lines.append(f"... et {len(fautes) - 12} autre(s) dans le rapport.")
+        lines += ["", "Rien n'a été modifié sur ta timeline."]
+        buttons, default = '{"Fermer", "Voir le rapport"}', "Voir le rapport"
+    apple_script = (
+        'tell application "System Events" to activate\n'
+        f'set userChoice to display dialog {_as_text(chr(10).join(lines))} '
+        'with title "Résultat de la vérification" '
+        f'buttons {buttons} default button "{default}"\n'
+        'return button returned of userChoice'
     )
-else:
-    notify(
-        "Scan termine",
-        f"Aucune faute detectee sur {len(entries)} sous-titres. Tes sous-titres sont propres !"
-    )
+    out = _run_dialog(apple_script, "resultat")
+    if out and "Voir le rapport" in out and html_path:
+        try:
+            subprocess.run(["open", html_path], capture_output=True, timeout=10)
+        except Exception as e:
+            log(f"Ouverture du rapport echouee : {e}")
+
+
+html_path = write_html_report(fautes, len(entries), timeline.GetName())
+notify(
+    "Scan termine",
+    f"{len(fautes)} faute(s) sur {len(entries)} sous-titres." if fautes
+    else f"Aucune faute sur {len(entries)} sous-titres."
+)
+show_result_dialog(fautes, len(entries), html_path)
