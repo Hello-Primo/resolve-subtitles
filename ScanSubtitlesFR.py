@@ -38,23 +38,28 @@ BATCH_SIZE = 150  # videos courtes <= ~12 min passent en 1 batch
 # ────────── SELECTEUR DE MODE SPEAKER ──────────
 # Choisis selon ta video :
 #
-#   "single"        → 1 seule personne parle (toi). Tu remplis SINGLE_*.
+#   "single"        → 1 seule personne parle. Le popup demande homme / femme
+#                     (SINGLE_* = valeurs utilisees si le mode est fixe ici).
 #                     Plus rapide, gratuit, fiable. Cas le plus simple.
 #
-#   "multi_auto"    → plusieurs intervenants, Claude devine d'apres le texte
-#                     seul (mots-cles, accords, style). Gratuit mais peut se
-#                     tromper sur le genre du narrateur "je".
+#   "multi_auto"    → plusieurs intervenants, d'apres le texte seul. Popups :
+#                     combien de personnes, homme ou femme pour chacune,
+#                     precisions (prenoms, qui interviewe qui). Claude attribue
+#                     ensuite chaque sous-titre a une personne, tu valides.
 #
-#   "multi_visual"  → plusieurs intervenants, on capture N frames de la
-#                     timeline et Claude VOIT qui parle. Le plus precis.
-#                     Coute ~+0,1-0,5€ selon duree video.
+#   "multi_visual"  → plusieurs intervenants, memes popups + capture de N
+#                     frames de la timeline : Claude VOIT qui parle. Le plus
+#                     precis. Coute ~+0,1-0,5€ selon duree video.
 # Par defaut "ask" : popup macOS au lancement pour choisir.
 # Mets une valeur fixe ("single"/"multi_auto"/"multi_visual") pour skip le popup.
 SPEAKER_MODE = "ask"
 
-# ── Si SPEAKER_MODE = "single" (ou choix Single dans le popup) ──
+# ── Si SPEAKER_MODE = "single" fixe (le popup, lui, demande homme / femme) ──
 SINGLE_NARRATOR_NAME = "Néto"
 SINGLE_NARRATOR_GENDER = "masculin"  # "masculin" / "feminin"
+
+# Nombre max de personnes proposees dans le popup "combien de personnes"
+MAX_DECLARED_SPEAKERS = 8
 
 # ── Si SPEAKER_MODE = "multi_visual" ──
 # Frequence de capture des frames :
@@ -827,25 +832,40 @@ def ask_frames_frequency_dialog():
     return "auto"
 
 
-# ============== Popup macOS : nombre total de speakers (dropdown) ==============
-def ask_speakers_count_dialog():
-    """Dropdown : nb total de personnes distinctes qui parlent."""
-    options = [
-        "1 speaker (toi seul)",
-        "2 speakers",
-        "3 speakers",
-        "4 speakers",
-        "5 speakers",
-        "6 speakers ou plus",
-        "Inconnu (laisser Claude deviner)",
-    ]
+# ============== Popups macOS : qui parle dans la video ==============
+def _as_text(s):
+    """Convertit un texte Python (multi-lignes) en expression AppleScript."""
+    return " & return & ".join(
+        '"' + line.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        for line in str(s).split("\n")
+    )
+
+
+def _run_dialog(apple_script, what):
+    """Lance un popup osascript. Retourne la reponse, ou None si le popup plante."""
+    try:
+        result = subprocess.run(["osascript", "-e", apple_script],
+                                capture_output=True, text=True, timeout=300)
+        return (result.stdout or "").strip()
+    except Exception as e:
+        log(f"Popup {what} echoue ({e}).")
+        return None
+
+
+def gender_word(gender):
+    return "femme" if gender == "feminin" else "homme"
+
+
+def ask_people_count_dialog():
+    """Dropdown : nb de personnes distinctes qui parlent. None si annule."""
+    options = [f"{n} personnes" for n in range(2, MAX_DECLARED_SPEAKERS + 1)]
     options_str = ", ".join(f'"{o}"' for o in options)
     apple_script = (
         'tell application "System Events" to activate\n'
         f'set userChoice to choose from list {{{options_str}}} '
-        'with title "Nombre de speakers" '
-        'with prompt "Combien de personnes distinctes parlent dans cette video ?" '
-        f'default items {{"{options[1]}"}} '
+        'with title "Nombre de personnes" '
+        'with prompt "Combien de personnes différentes parlent dans cette vidéo ?" '
+        f'default items {{"{options[0]}"}} '
         'OK button name "Suivant" '
         'cancel button name "Annuler"\n'
         'if userChoice is false then\n'
@@ -854,40 +874,42 @@ def ask_speakers_count_dialog():
         '  return userChoice as string\n'
         'end if'
     )
-    try:
-        result = subprocess.run(["osascript", "-e", apple_script],
-                                capture_output=True, text=True, timeout=300)
-        out = (result.stdout or "").strip()
-        if "cancel" in out or not out:
-            return None
-        if "1 speaker" in out: return "1"
-        if "2 speakers" in out: return "2"
-        if "3 speakers" in out: return "3"
-        if "4 speakers" in out: return "4"
-        if "5 speakers" in out: return "5"
-        if "6 speakers" in out: return "6+"
-        return "inconnu"
-    except Exception as e:
-        log(f"Popup nb speakers echoue ({e}).")
-        return "inconnu"
+    out = _run_dialog(apple_script, "nombre de personnes")
+    if not out or "cancel" in out:
+        return None
+    m = re.match(r"(\d+)", out)
+    return int(m.group(1)) if m else None
 
 
-# ============== Popup macOS : description speakers (texte libre) ==============
-def ask_speakers_description_dialog(default_prefix=""):
-    """Champ texte pour decrire les speakers (limite single-line AppleScript)."""
-    # Utilise & return & pour les sauts de ligne en AppleScript
-    prompt_text = (
-        '"Speakers dans l\'ordre d\'apparition" & return & return & '
-        '"Ex : 1 homme puis 1 femme puis 1 homme puis 2 femmes" & return & '
-        '"Ex : moi seul / 3 hommes / 2 femmes mixtes"'
-    )
-    # Pre-remplir le champ avec le nb de speakers (si fourni)
-    default_str = default_prefix.replace('"', '\\"')
+def ask_person_gender_dialog(num, total):
+    """Popup a boutons : 'masculin' / 'feminin', ou None si annule."""
     apple_script = (
         'tell application "System Events" to activate\n'
-        f'set userDialog to display dialog {prompt_text} '
-        f'default answer "{default_str}" '
-        'with title "Ordre des speakers (optionnel)" '
+        f'set userDialog to display dialog "Personne {num} sur {total} : un homme ou une femme ?" '
+        '& return & return & "(Si possible dans l\'ordre où elles parlent.)" '
+        f'with title "Qui parle ? ({num}/{total})" '
+        'buttons {"Annuler", "Une femme", "Un homme"} '
+        'default button "Un homme"\n'
+        'return button returned of userDialog'
+    )
+    out = _run_dialog(apple_script, "homme/femme")
+    if not out or "Annuler" in out:
+        return None
+    return "feminin" if "femme" in out else "masculin"
+
+
+def ask_people_details_dialog(summary):
+    """Champ texte facultatif : prenoms, roles, qui parle en premier."""
+    prompt = (
+        f"{summary}\n\n"
+        "Précisions (facultatif) : prénoms, rôles, qui parle en premier.\n"
+        "Ex : Personne 1 = Néto, il pose les questions. Personne 2 = Marie, elle répond."
+    )
+    apple_script = (
+        'tell application "System Events" to activate\n'
+        f'set userDialog to display dialog {_as_text(prompt)} '
+        'default answer "" '
+        'with title "Précisions sur les personnes (facultatif)" '
         'buttons {"Passer", "Valider"} '
         'default button "Valider"\n'
         'if button returned of userDialog is "Passer" then\n'
@@ -896,31 +918,262 @@ def ask_speakers_description_dialog(default_prefix=""):
         '  return text returned of userDialog\n'
         'end if'
     )
+    return _run_dialog(apple_script, "precisions") or ""
+
+
+def describe_declared(declared):
+    """Resume texte de la composition declaree par l'utilisateur."""
+    people = declared.get("people") or []
+    text = f"{len(people)} personnes : " + ", ".join(
+        f"{p['label']} = {gender_word(p['gender'])}" for p in people
+    )
+    if declared.get("details"):
+        text += f". Precisions : {declared['details']}"
+    return text
+
+
+def ask_declared_speakers():
+    """Popups : combien de personnes + homme/femme pour chacune + precisions.
+    Retourne {"people": [{"label", "gender"}], "details": str} ou None si annule."""
+    total = ask_people_count_dialog()
+    if total is None:
+        return None
+    people = []
+    for num in range(1, total + 1):
+        gender = ask_person_gender_dialog(num, total)
+        if gender is None:
+            return None
+        people.append({"label": f"Personne {num}", "gender": gender})
+    declared = {"people": people, "details": ""}
+    declared["details"] = ask_people_details_dialog(describe_declared(declared)).strip()
+    return declared
+
+
+# ============== Mode multi_auto : qui dit quoi, d'apres le texte ==============
+def attribute_speakers_from_text(entries, declared, correction=""):
+    """Claude attribue chaque sous-titre a une des personnes declarees.
+    Les genres viennent de l'utilisateur et ne sont jamais remis en cause.
+    Retourne (people, subtitle_map, ctx) ou None si echec."""
+    labels = [p["label"] for p in declared["people"]]
+    compo = "\n".join(f"- {p['label']} : {gender_word(p['gender'])}" for p in declared["people"])
+    hints = ""
+    if declared.get("details"):
+        hints += f"\nPrecisions de l'utilisateur : « {declared['details']} »"
+    if correction:
+        hints += (f"\nCORRECTION de l'utilisateur sur ta proposition precedente "
+                  f"(PRIORITAIRE) : « {correction} »")
+    all_texts = "\n".join(f"[{e['idx']}] {e['text']}" for e in entries)
+    user_msg = (
+        f"Dans cette video, {len(labels)} personnes parlent. Composition donnee par "
+        "l'utilisateur (FIABLE, ne la remets pas en cause) :\n"
+        f"{compo}{hints}\n"
+        "La numerotation suit a priori l'ordre d'apparition, mais c'est indicatif.\n\n"
+        f"Sous-titres ({len(entries)} lignes) :\n{all_texts}\n\n"
+        "Pour chaque sous-titre, determine QUI le prononce. Indices a utiliser :\n"
+        "- tours de parole : question / reponse, relances, remerciements, changement de sujet\n"
+        "- presentations ('je suis X', 'je m'appelle'), prenoms cites quand on s'adresse a quelqu'un\n"
+        "- role et style (intervieweur vs invite, voix off vs temoin), precisions de l'utilisateur\n"
+        "ATTENTION : NE TE FIE PAS aux accords au masculin/feminin a la 1re personne "
+        "('je suis venu' / 'je suis venue') pour deviner qui parle : ces sous-titres "
+        "n'ont pas encore ete corriges, les fautes d'accord sont justement ce qu'on cherche.\n"
+        "Les sous-titres consecutifs d'une meme phrase ont le meme locuteur. "
+        "Si tu ne peux vraiment pas trancher pour un passage, mets \"?\".\n\n"
+        "JSON STRICT, aucun texte autour :\n"
+        "{\n"
+        '  "people":[{"label":"Personne 1","name":"prenom si clairement identifie, sinon vide",'
+        '"role":"ex : intervieweur, invitee, voix off (max 40 caracteres)"}],\n'
+        '  "segments":[{"from":1,"to":8,"speaker":"Personne 1"},'
+        '{"from":9,"to":12,"speaker":"Personne 2"}],\n'
+        '  "summary":"resume 1 phrase","topic":"sujet 3-5 mots","tone":"...",\n'
+        '  "glossary":["marques, lieux, noms propres a ne pas modifier"]\n'
+        "}\n"
+        f"Les segments couvrent tous les idx de 1 a {len(entries)}, dans l'ordre, sans trou. "
+        f"speaker = un de ces labels exacts : {', '.join(labels)}, ou \"?\"."
+    )
     try:
-        result = subprocess.run(["osascript", "-e", apple_script],
-                                capture_output=True, text=True, timeout=300)
-        out = (result.stdout or "").strip()
-        return out
+        resp = client.messages.create(
+            model=MODEL, max_tokens=8000, temperature=0,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        raw = resp.content[0].text.strip()
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if not m:
+            log(f"  Reponse non-JSON : {raw[:200]}")
+            return None
+        data = json.loads(m.group(0))
     except Exception as e:
-        log(f"Popup description echoue ({e}) — pas de description user.")
-        return ""
+        log(f"  Attribution echouee : {e}")
+        return None
+
+    infos = {str(p.get("label", "")).strip(): p for p in (data.get("people") or [])
+             if isinstance(p, dict)}
+    people = []
+    for p in declared["people"]:
+        info = infos.get(p["label"], {})
+        prenom = str(info.get("name") or "").strip()
+        people.append({
+            "label": p["label"],
+            "name": f"{p['label']} ({prenom})" if prenom else p["label"],
+            "gender": p["gender"],  # genre = celui declare par l'utilisateur
+            "description": str(info.get("role") or "").strip()[:50],
+            "prenom": prenom,
+        })
+    name_by_label = {p["label"]: p["name"] for p in people}
+    valid_idx = {e["idx"] for e in entries}
+    subtitle_map = {}
+    for seg in data.get("segments") or []:
+        speaker = str(seg.get("speaker", "")).strip()
+        if speaker.isdigit():
+            speaker = f"Personne {speaker}"
+        name = name_by_label.get(speaker)
+        if not name:
+            continue
+        try:
+            start, end = int(seg.get("from")), int(seg.get("to"))
+        except (TypeError, ValueError):
+            continue
+        for i in range(start, end + 1):
+            if str(i) in valid_idx:
+                subtitle_map[str(i)] = name
+
+    gl = data.get("glossary") or []
+    if not isinstance(gl, list):
+        gl = []
+    ctx = {
+        "summary": data.get("summary", ""),
+        "topic": data.get("topic", ""),
+        "tone": data.get("tone", ""),
+        "glossary": [str(g.get("term") or next(iter(g.values()), "")) if isinstance(g, dict) else str(g)
+                     for g in gl if g],
+    }
+    return people, subtitle_map, ctx
+
+
+def idx_ranges(idxs, max_len=70):
+    """[1,2,3,9,10] -> '1-3, 9-10' (tronque si trop long pour le popup)."""
+    nums = sorted(int(i) for i in idxs)
+    parts = []
+    for n in nums:
+        if parts and n == parts[-1][1] + 1:
+            parts[-1][1] = n
+        else:
+            parts.append([n, n])
+    text = ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in parts)
+    return text if len(text) <= max_len else text[:max_len].rsplit(",", 1)[0] + ", ..."
+
+
+def validate_attribution_dialog(people, subtitle_map, entries):
+    """Montre qui dit quoi. Retourne "ok", None (annule) ou le texte de correction."""
+    lines = ["Voici qui parle, d'après Claude :", ""]
+    for p in people:
+        said = [e for e in entries if subtitle_map.get(e["idx"]) == p["name"]]
+        role = f", {p['description']}" if p.get("description") else ""
+        lines.append(f"{p['name']} : {gender_word(p['gender'])}{role}, {len(said)} sous-titre(s)")
+        if said:
+            lines.append(f"     n° {idx_ranges(e['idx'] for e in said)}")
+            first = said[0]["text"].replace("\n", " ")
+            lines.append(f"     ex. #{said[0]['idx']} « {first[:60]} »")
+    missing = sum(1 for e in entries if e["idx"] not in subtitle_map)
+    if missing:
+        lines += ["", f"Non attribués : {missing} (leurs accords au « je » ne seront pas touchés)"]
+    apple_script = (
+        'tell application "System Events" to activate\n'
+        f'set userChoice to display dialog {_as_text(chr(10).join(lines))} '
+        'with title "Vérifie qui parle" '
+        'buttons {"Annuler", "Corriger", "Confirmer"} '
+        'default button "Confirmer"\n'
+        'return button returned of userChoice'
+    )
+    out = _run_dialog(apple_script, "validation des personnes")
+    if out is None or "Confirmer" in out:
+        return "ok"
+    if "Corriger" not in out:
+        return None
+    apple_script = (
+        'tell application "System Events" to activate\n'
+        'set userDialog to display dialog "Qu\'est-ce qui ne va pas ?" & return & return & '
+        '"Ex : la femme parle aussi du sous-titre 20 au 35 / Personne 2 = Marie" '
+        'default answer "" '
+        'with title "Corriger qui parle" '
+        'buttons {"Annuler", "Valider"} default button "Valider"\n'
+        'if button returned of userDialog is "Annuler" then\n'
+        '  return "cancel"\n'
+        'else\n'
+        '  return text returned of userDialog\n'
+        'end if'
+    )
+    out = _run_dialog(apple_script, "correction des personnes")
+    if not out or out == "cancel":
+        return None
+    return out
+
+
+def build_multi_context(people, subtitle_map, ctx, declared_text, user_override=""):
+    """Contexte global (meme format que multi_visual, relu par Translate)."""
+    counts = {p["name"]: sum(1 for v in subtitle_map.values() if v == p["name"]) for p in people}
+    main = max(people, key=lambda p: counts[p["name"]])
+    return {
+        "topic": ctx.get("topic", ""),
+        "summary": ctx.get("summary", ""),
+        "tone": ctx.get("tone", ""),
+        "characters": [p["prenom"] for p in people if p.get("prenom")],
+        "glossary": ctx.get("glossary") or [],
+        "narrator_name": main["name"],
+        "narrator_gender": main["gender"],
+        "gender_clues": declared_text,
+        "speakers": [{"name": p["name"], "gender": p["gender"], "description": p["description"]}
+                     for p in people],
+        "user_description": declared_text,
+        "user_override": user_override,
+    }
+
+
+def run_text_attribution(declared):
+    """Attribution texte + validation par l'utilisateur (3 essais max).
+    Retourne (global_context, subtitle_speakers_map)."""
+    declared_text = describe_declared(declared)
+    correction = ""
+    for _attempt in range(3):
+        log("Attribution des sous-titres aux personnes (d'apres le texte)...")
+        res = attribute_speakers_from_text(entries, declared, correction)
+        if not res:
+            break
+        people, smap, ctx = res
+        for p in people:
+            n = sum(1 for v in smap.values() if v == p["name"])
+            log(f"  {p['name']} ({p['gender']}) : {n} sous-titre(s)")
+        answer = validate_attribution_dialog(people, smap, entries)
+        if answer is None:
+            fail("Annule par l'utilisateur (validation des personnes).")
+        if answer == "ok":
+            return build_multi_context(people, smap, ctx, declared_text, correction), smap
+        correction = f"{correction} / {answer}" if correction else answer
+        log(f"Correction user : {answer} -> nouvelle attribution")
+
+    # Pas d'attribution fiable : on garde les personnes declarees, sans mapping
+    log("Pas d'attribution validee -> correction sans mapping (accords au 'je' non forces).")
+    ctx = extract_global_context(entries) or {}
+    people = [{"label": p["label"], "name": p["label"], "gender": p["gender"],
+               "description": "", "prenom": ""} for p in declared["people"]]
+    return build_multi_context(people, {}, ctx, declared_text, correction), {}
 
 
 # ============== Popup macOS pour choisir le mode ==============
 def ask_speaker_mode_dialog():
-    """Affiche une popup macOS native pour choisir le mode speaker.
-    Retourne 'single' / 'multi_auto' / 'multi_visual' ou None si annule."""
-    opt_single = "1 seul speaker (Single) - rapide, gratuit"
-    opt_auto = "Plusieurs speakers - Multi Auto (gratuit, peu fiable)"
-    opt_visual = "Plusieurs speakers - Multi Visual (capture video, le plus precis)"
+    """Popup : qui parle dans la video.
+    Retourne 'single_m' / 'single_f' / 'multi_auto' / 'multi_visual', ou None si annule."""
+    opt_man = "1 personne : un homme"
+    opt_woman = "1 personne : une femme"
+    opt_auto = "Plusieurs personnes : je dis combien et qui (rapide)"
+    opt_visual = "Plusieurs personnes + capture vidéo (plus précis, plus lent)"
     apple_script = (
         'tell application "System Events" to activate\n'
         'set userChoice to choose from list '
-        f'{{"{opt_single}", "{opt_auto}", "{opt_visual}"}} '
-        'with title "Mode de correction des sous-titres" '
-        'with prompt "Combien de speakers dans cette video ?" '
-        f'default items {{"{opt_single}"}} '
-        'OK button name "Lancer le scan" '
+        f'{{"{opt_man}", "{opt_woman}", "{opt_auto}", "{opt_visual}"}} '
+        'with title "Vérification des sous-titres FR" '
+        'with prompt "Qui parle dans cette vidéo ? (pour les accords : je suis venu / venue)" '
+        f'default items {{"{opt_man}"}} '
+        'OK button name "Suivant" '
         'cancel button name "Annuler"\n'
         'if userChoice is false then\n'
         '  return "cancel"\n'
@@ -928,50 +1181,55 @@ def ask_speaker_mode_dialog():
         '  return userChoice as string\n'
         'end if'
     )
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", apple_script],
-            capture_output=True, text=True, timeout=120,
-        )
-        out = (result.stdout or "").strip()
-        if "cancel" in out or not out:
-            return None
-        if "Single" in out:
-            return "single"
-        if "Multi Auto" in out:
-            return "multi_auto"
-        if "Multi Visual" in out:
-            return "multi_visual"
-    except Exception as e:
-        log(f"Popup choix mode echoue ({e}) — utilise 'single' par defaut.")
-    return "single"
+    out = _run_dialog(apple_script, "choix du mode")
+    if out is None:
+        log("Popup choix mode en echec -> 1 personne par defaut.")
+        return "single_f" if SINGLE_NARRATOR_GENDER == "feminin" else "single_m"
+    if not out or "cancel" in out:
+        return None
+    if "capture" in out:
+        return "multi_visual"
+    if "je dis combien" in out:
+        return "multi_auto"
+    if "une femme" in out:
+        return "single_f"
+    return "single_m"
 
 
 # ============== Dispatcher selon SPEAKER_MODE ==============
 # Resolution du mode si "ask" -> popup
 effective_mode = SPEAKER_MODE
+single_gender = SINGLE_NARRATOR_GENDER
 if effective_mode == "ask":
-    log("Choix du mode speaker (popup macOS)...")
+    log("Choix : qui parle dans la video (popup macOS)...")
     chosen = ask_speaker_mode_dialog()
     if chosen is None:
         fail("Annule par l'utilisateur. Aucune correction effectuee.")
-    effective_mode = chosen
+    if chosen in ("single_m", "single_f"):
+        effective_mode = "single"
+        single_gender = "feminin" if chosen == "single_f" else "masculin"
+    else:
+        effective_mode = chosen
     log(f"Mode selectionne : {effective_mode}")
 
 global_context = None
 subtitle_speakers_map = {}
 
 if effective_mode == "single":
-    log(f"Mode SPEAKER : single ({SINGLE_NARRATOR_NAME}, {SINGLE_NARRATOR_GENDER})")
+    if single_gender == SINGLE_NARRATOR_GENDER and SINGLE_NARRATOR_NAME:
+        single_name = SINGLE_NARRATOR_NAME
+    else:
+        single_name = "la narratrice" if single_gender == "feminin" else "le narrateur"
+    log(f"Mode SPEAKER : single ({single_name}, {single_gender})")
     global_context = {
         "topic": "",
         "summary": "",
         "tone": "",
-        "characters": [SINGLE_NARRATOR_NAME] if SINGLE_NARRATOR_NAME else [],
+        "characters": [single_name] if single_name == SINGLE_NARRATOR_NAME else [],
         "glossary": [],
-        "narrator_name": SINGLE_NARRATOR_NAME,
-        "narrator_gender": SINGLE_NARRATOR_GENDER,
-        "gender_clues": f"narrateur unique : {SINGLE_NARRATOR_GENDER}",
+        "narrator_name": single_name,
+        "narrator_gender": single_gender,
+        "gender_clues": f"une seule personne parle : {gender_word(single_gender)}",
     }
 elif effective_mode == "multi_visual":
     log("Mode SPEAKER : multi_visual (capture frames + vision Claude)")
@@ -984,31 +1242,13 @@ elif effective_mode == "multi_visual":
     frames_config = freq_choice
     log(f"Frequence capture : {frames_config}")
 
-    # Popup 3 : Nombre de speakers (dropdown)
-    log("Combien de speakers ?")
-    speakers_count = ask_speakers_count_dialog()
-    if speakers_count is None:
+    # Popups 3 : combien de personnes + homme/femme + precisions
+    log("Qui parle ? (nombre de personnes + homme/femme)")
+    declared = ask_declared_speakers()
+    if declared is None:
         fail("Annule par l'utilisateur.")
-    log(f"Nombre de speakers : {speakers_count}")
-
-    # Popup 4 : Description / ordre (champ pre-rempli avec nb)
-    log("Ordre / details des speakers...")
-    prefix = (
-        f"{speakers_count} speakers : "
-        if speakers_count not in ("inconnu", "1")
-        else ""
-    )
-    user_description = ask_speakers_description_dialog(default_prefix=prefix)
-    if user_description:
-        log(f"Description user : {user_description}")
-
-    # Compose la description finale combinee
-    final_description_parts = []
-    if speakers_count and speakers_count != "inconnu":
-        final_description_parts.append(f"Nombre total de personnes : {speakers_count}")
-    if user_description:
-        final_description_parts.append(f"Ordre/details : {user_description}")
-    final_description = ". ".join(final_description_parts)
+    final_description = describe_declared(declared)
+    log(f"Composition : {final_description}")
 
     if frames_config == "per_subtitle":
         captures = capture_one_frame_per_subtitle(entries)
@@ -1017,7 +1257,9 @@ elif effective_mode == "multi_visual":
 
     if captures:
         # PASSE 0 : Claude analyse + propose
-        proposal = analyze_speakers_with_vision(entries, captures, final_description)
+        proposal = analyze_speakers_with_vision(
+            entries, captures,
+            f"COMPOSITION CERTAINE (genres exacts, a respecter) : {final_description}")
         if proposal:
             # POPUP validation : user confirme/modifie/annule
             log("Affichage popup validation des speakers...")
@@ -1028,48 +1270,64 @@ elif effective_mode == "multi_visual":
             # Construit le contexte global a partir de la proposition validee
             narrator = validated.get("narrator") or {}
             others = validated.get("other_speakers") or []
-            global_context = {
-                "topic": validated.get("topic", ""),
-                "summary": validated.get("summary", ""),
-                "tone": validated.get("tone", ""),
-                "characters": [narrator.get("name")] if narrator.get("name") else [],
-                "glossary": validated.get("glossary") or [],
-                "narrator_name": narrator.get("name", "inconnu"),
-                "narrator_gender": narrator.get("gender", "masculin"),
-                "gender_clues": (
-                    f"narrateur principal {narrator.get('gender', '?')} + "
-                    f"{len(others)} autre(s) intervenant(s)"
-                ),
-                "speakers": ([{
-                    "name": narrator.get("name") or "narrator",
-                    "gender": narrator.get("gender", "masculin"),
-                    "description": narrator.get("description", ""),
-                }] + [
-                    {"name": sp.get("label", "?"),
-                     "gender": sp.get("gender", "masculin"),
-                     "description": sp.get("description", "")}
-                    for sp in others
-                ]),
-                "user_override": validated.get("user_override", ""),
-            }
-            # Mapping sous-titre -> nom speaker
-            raw_map = validated.get("subtitle_speakers") or {}
-            # Normalise "narrator" -> nom reel
-            narrator_label = narrator.get("name") or "narrator"
-            subtitle_speakers_map = {
-                str(k): (narrator_label if v == "narrator" else v)
-                for k, v in raw_map.items()
-            }
-            log(f"Proposition validee : narrateur '{narrator_label}' "
-                f"({narrator.get('gender')}) + {len(others)} speaker(s)")
+            # Les genres declares par l'utilisateur priment sur ceux vus a l'image
+            proposed_genders = sorted(
+                [narrator.get("gender", "masculin")]
+                + [sp.get("gender", "masculin") for sp in others]
+            )
+            declared_genders = sorted(p["gender"] for p in declared["people"])
+            if proposed_genders != declared_genders:
+                log(f"Vision : composition {proposed_genders} differente de celle "
+                    f"declaree {declared_genders} -> attribution d'apres le texte")
+            else:
+                global_context = {
+                    "topic": validated.get("topic", ""),
+                    "summary": validated.get("summary", ""),
+                    "tone": validated.get("tone", ""),
+                    "characters": [narrator.get("name")] if narrator.get("name") else [],
+                    "glossary": validated.get("glossary") or [],
+                    "narrator_name": narrator.get("name", "inconnu"),
+                    "narrator_gender": narrator.get("gender", "masculin"),
+                    "gender_clues": (
+                        f"narrateur principal {narrator.get('gender', '?')} + "
+                        f"{len(others)} autre(s) intervenant(s)"
+                    ),
+                    "speakers": ([{
+                        "name": narrator.get("name") or "narrator",
+                        "gender": narrator.get("gender", "masculin"),
+                        "description": narrator.get("description", ""),
+                    }] + [
+                        {"name": sp.get("label", "?"),
+                         "gender": sp.get("gender", "masculin"),
+                         "description": sp.get("description", "")}
+                        for sp in others
+                    ]),
+                    "user_description": final_description,
+                    "user_override": validated.get("user_override", ""),
+                }
+                # Mapping sous-titre -> nom speaker
+                raw_map = validated.get("subtitle_speakers") or {}
+                # Normalise "narrator" -> nom reel
+                narrator_label = narrator.get("name") or "narrator"
+                subtitle_speakers_map = {
+                    str(k): (narrator_label if v == "narrator" else v)
+                    for k, v in raw_map.items()
+                }
+                log(f"Proposition validee : narrateur '{narrator_label}' "
+                    f"({narrator.get('gender')}) + {len(others)} speaker(s)")
 
     if not global_context:
-        log("Fallback : extraction sans vision (texte seul)")
-        global_context = extract_global_context(entries)
+        log("Fallback : sans vision -> attribution d'apres le texte")
+        global_context, subtitle_speakers_map = run_text_attribution(declared)
 else:
-    # multi_auto
-    log("Mode SPEAKER : multi_auto (Claude devine d'apres le texte)")
-    global_context = extract_global_context(entries)
+    # multi_auto : l'utilisateur dit combien de personnes et qui est homme/femme,
+    # Claude attribue chaque sous-titre d'apres le texte, l'utilisateur valide
+    log("Mode SPEAKER : multi_auto (composition donnee par l'utilisateur, texte seul)")
+    declared = ask_declared_speakers()
+    if declared is None:
+        fail("Annule par l'utilisateur.")
+    log(f"Composition : {describe_declared(declared)}")
+    global_context, subtitle_speakers_map = run_text_attribution(declared)
 
 global_context = global_context or {}
 
@@ -1115,28 +1373,59 @@ def build_system_prompt(context):
         gloss = ", ".join(context.get("glossary", []) or [])
         narrator = context.get("narrator_name", "inconnu")
         narrator_gender = context.get("narrator_gender", "inconnu")
+        speakers = context.get("speakers") or []
+        multi = len(speakers) > 1
         base += "CONTEXTE GLOBAL de la video (lu deja entierement) :\n"
         base += f"- Sujet         : {context.get('topic', '?')}\n"
         base += f"- Resume        : {context.get('summary', '?')}\n"
         base += f"- Ton           : {context.get('tone', '?')}\n"
-        base += f"- Narrateur     : {narrator} (genre : {narrator_gender})\n"
+        if multi:
+            base += f"- Intervenants  : {len(speakers)} personnes parlent (liste ci-dessous)\n"
+        else:
+            base += f"- Narrateur     : {narrator} (genre : {narrator_gender})\n"
         base += f"- Autres genres : {context.get('gender_clues', '?')}\n"
+        if context.get("user_description"):
+            base += f"- Precisions de l'utilisateur : {context['user_description']}\n"
+        if context.get("user_override"):
+            base += f"- Correction de l'utilisateur (PRIORITAIRE) : {context['user_override']}\n"
         if chars:
             base += f"- Personnages cites : {chars}\n"
         if gloss:
             base += f"- A NE PAS modifier (glossaire) : {gloss}\n"
+        if multi:
+            people = "\n".join(
+                f"    - {sp.get('name', '?')} : {sp.get('gender', '?')}"
+                + (f" ({sp['description']})" if sp.get("description") else "")
+                for sp in speakers
+            )
+            je_rule = (
+                "  PLUSIEURS PERSONNES PARLENT dans cette video :\n"
+                f"{people}\n"
+                "  Quand TU VOIS 'je / me / moi / m'a' dans un sous-titre, l'accord du "
+                "participe passe suit le genre de LA PERSONNE QUI PARLE DANS CE SOUS-TITRE "
+                "(indiquee dans le message, rubrique 'Qui parle'), PAS celui d'un narrateur "
+                "principal.\n"
+                "  Si un sous-titre n'a PAS de personne indiquee, NE CHANGE PAS le genre "
+                "d'un accord a la 1re personne (laisse-le tel qu'ecrit) : il peut etre "
+                "prononce par une personne de l'autre genre. Toutes les autres fautes "
+                "se corrigent normalement.\n\n"
+            )
+        else:
+            je_rule = (
+                f"  Le NARRATEUR principal est {narrator_gender}. Quand TU VOIS 'je / me / moi / "
+                "m'a' dans un sous-titre, l'accord du participe passe doit suivre CE genre.\n\n"
+            )
         base += (
             "\nACCORDS — TRES IMPORTANT (souvent rate par les correcteurs auto) :\n\n"
-            f"  Le NARRATEUR principal est {narrator_gender}. Quand TU VOIS 'je / me / moi / "
-            "m'a' dans un sous-titre, l'accord du participe passe doit suivre CE genre.\n\n"
+            + je_rule +
             "  EXEMPLES CONCRETS A APPLIQUER SANS HESITER :\n"
-            f"  Si narrateur MASCULIN :\n"
+            f"  Si la personne qui dit 'je' est un HOMME :\n"
             "    'je suis venue'    -> FAUTE -> 'je suis venu'\n"
             "    'je me suis trompee' -> FAUTE -> 'je me suis trompe'\n"
             "    'on m'a appelee'   -> FAUTE -> 'on m'a appele'\n"
             "    'je suis arrivee'  -> FAUTE -> 'je suis arrive'\n"
             "    'je me suis fait avoir' -> CORRECT (pas d'accord avec 'fait + infinitif')\n"
-            "  Si narrateur FEMININ :\n"
+            "  Si la personne qui dit 'je' est une FEMME :\n"
             "    'je suis venu'     -> FAUTE -> 'je suis venue'\n"
             "    'je me suis trompe' -> FAUTE -> 'je me suis trompee'\n\n"
             "  REGLES GENERALES :\n"
@@ -1160,7 +1449,9 @@ def build_system_prompt(context):
         "- Ne corrige PAS les noms propres, marques, hashtags, URLs, glossaire\n\n"
         "PRINCIPE FINAL : si tu hesites entre corriger ou laisser, CORRIGE. "
         "C'est mieux de proposer une correction discutable que de manquer une vraie faute. "
-        "L'utilisateur validera. Si VRAIMENT rien a corriger, renvoie le texte identique.\n\n"
+        "L'utilisateur validera. Si VRAIMENT rien a corriger, renvoie le texte identique.\n"
+        "(Seule exception : le genre des accords a la 1re personne quand plusieurs "
+        "personnes parlent, voir la regle plus haut.)\n\n"
         "FORMAT DE SORTIE (JSON strict, aucun texte autour) :\n"
         '{ "corrections": [ { "idx": "1", "text": "..." } ] }\n'
         "- idx doit etre identique a celui fourni\n"
@@ -1175,19 +1466,20 @@ SYSTEM_PROMPT = build_system_prompt(global_context)
 def correct_batch(batch, prev_overlap):
     user_parts = []
 
-    # Si mode multi_visual : injecte qui parle pour chaque sous-titre du batch
+    # Si plusieurs personnes : injecte qui parle pour chaque sous-titre
+    # (contexte precedent inclus, pour les phrases a cheval sur deux batches)
     speakers = (global_context.get("speakers") or []) if global_context else []
     if subtitle_speakers_map and speakers:
         speakers_by_name = {sp.get("name"): sp for sp in speakers if sp.get("name")}
         lines = []
-        for e in batch:
+        for e in list(prev_overlap) + list(batch):
             sp_name = subtitle_speakers_map.get(e["idx"])
             if sp_name and sp_name in speakers_by_name:
                 sp = speakers_by_name[sp_name]
                 lines.append(f"  [{e['idx']}] parle par {sp_name} ({sp.get('gender', '?')})")
         if lines:
             user_parts.append(
-                "Mapping speakers par sous-titre (pour les accords du participe passe) :\n"
+                "Qui parle, par sous-titre (pour les accords du participe passe) :\n"
                 + "\n".join(lines)
             )
 

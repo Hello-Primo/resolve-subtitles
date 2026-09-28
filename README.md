@@ -30,10 +30,12 @@ Dans Resolve, timeline ouverte avec une piste de sous-titres :
 2. **Workspace → Scripts → ApplyCorrectionsFR** — crée la piste FR corrigée (lance le scan d'abord ; le rapport doit dater de moins de 24 h).
 3. **Workspace → Scripts → TranslateSubtitlesFR_EN** — traduit la piste FR en EN sur une nouvelle piste.
 
-Au lancement, un popup demande le **mode speaker** :
-- **Single** — une seule personne parle (le plus courant et le plus fiable)
-- **Multi Auto** — plusieurs intervenants, détection automatique d'après le texte
-- **Multi Visual** — plusieurs intervenants, avec analyse d'images de la timeline (le plus précis)
+Au lancement, un popup demande **qui parle** (indispensable pour les accords : « je suis venu » ou « venue ») :
+- **1 personne : un homme** / **1 personne : une femme** : le plus courant, rapide et fiable
+- **Plusieurs personnes : je dis combien et qui** : on indique le nombre de personnes, homme ou femme pour chacune, et au besoin des précisions (« Personne 1 = Néto, il pose les questions »). Claude attribue chaque sous-titre à une personne, puis un popup montre qui dit quoi (numéros de sous-titres) : **Confirmer** ou **Corriger**
+- **Plusieurs personnes + capture vidéo** : mêmes questions, plus une analyse d'images de la timeline (le plus précis, plus lent)
+
+Avec plusieurs personnes, un sous-titre que Claude n'a pas pu attribuer garde son accord à la 1re personne tel qu'il est écrit : le script ne force jamais un « je » au masculin ou au féminin sans savoir qui parle.
 
 ## Dépannage
 
