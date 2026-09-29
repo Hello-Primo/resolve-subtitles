@@ -1,0 +1,183 @@
+{
+ "interview": {
+  "subs": [
+   "Bonjour Marie, merci d'être là.",
+   "Tu peux nous raconter",
+   "comment tu es arrivé en Guyane ?",
+   "Je suis arrivé ici en 2015,",
+   "après mes études a Lyon.",
+   "Au début je me suis senti un peu perdu,",
+   "mais les gens m'ont vite adopté.",
+   "Et toi Néto, tu es né ici ?",
+   "Oui, je suis né à Saint-Laurent.",
+   "Et je suis allée faire mes études",
+   "en métropole avant de revenir.",
+   "Merci beaucoup Marie pour ce temoignage."
+  ],
+  "answers": {
+   "Vérification des sous-titres FR": [
+    "Plusieurs personnes : je dis combien et qui (rapide)"
+   ],
+   "Nombre de personnes": [
+    "2 personnes"
+   ],
+   "Qui parle ? (": [
+    "Un homme",
+    "Une femme"
+   ],
+   "Précisions sur les personnes": [
+    ""
+   ],
+   "Vérifie qui parle": [
+    "Corriger",
+    "Confirmer"
+   ],
+   "Corriger qui parle": [
+    "Personne 1 = Néto, il interviewe. Personne 2 = Marie, elle répond."
+   ],
+   "Résultat de la vérification": [
+    "Voir le rapport"
+   ]
+  }
+ },
+ "solo_femme": {
+  "subs": [
+   "Aujourd'hui je suis allé visiter",
+   "la nouvelle médiathèque de la ville.",
+   "J'ai été très surpris par le calme",
+   "et les enfants était ravis."
+  ],
+  "answers": {
+   "Vérification des sous-titres FR": [
+    "1 personne : une femme"
+   ],
+   "Résultat de la vérification": [
+    "Voir le rapport"
+   ]
+  }
+ },
+ "solo_homme": {
+  "subs": [
+   "Je suis venue vous présenter",
+   "notre nouveau projet."
+  ],
+  "answers": {
+   "Vérification des sous-titres FR": [
+    "1 personne : un homme"
+   ],
+   "Résultat de la vérification": [
+    "Voir le rapport"
+   ]
+  }
+ },
+ "visual_nocapture": {
+  "subs": [
+   "Bonjour Marie, merci d'être là.",
+   "Tu peux nous raconter",
+   "comment tu es arrivé en Guyane ?",
+   "Je suis arrivé ici en 2015,",
+   "après mes études a Lyon.",
+   "Au début je me suis senti un peu perdu,",
+   "mais les gens m'ont vite adopté.",
+   "Et toi Néto, tu es né ici ?",
+   "Oui, je suis né à Saint-Laurent.",
+   "Et je suis allée faire mes études",
+   "en métropole avant de revenir.",
+   "Merci beaucoup Marie pour ce temoignage."
+  ],
+  "capture": false,
+  "answers": {
+   "Vérification des sous-titres FR": [
+    "Plusieurs personnes + capture vidéo (plus précis, plus lent)"
+   ],
+   "Frequence des captures video": [
+    "Auto - adapte a la duree (recommande general)"
+   ],
+   "Nombre de personnes": [
+    "2 personnes"
+   ],
+   "Qui parle ? (": [
+    "Un homme",
+    "Une femme"
+   ],
+   "Précisions sur les personnes": [
+    "Personne 1 = Néto, il interviewe. Personne 2 = Marie, elle répond."
+   ],
+   "Claude a detecte les speakers suivants": [
+    "Confirmer"
+   ],
+   "Vérifie qui parle": [
+    "Confirmer"
+   ],
+   "Résultat de la vérification": [
+    "Voir le rapport"
+   ]
+  }
+ },
+ "visual": {
+  "subs": [
+   "Bonjour Marie, merci d'être là.",
+   "Tu peux nous raconter",
+   "comment tu es arrivé en Guyane ?",
+   "Je suis arrivé ici en 2015,",
+   "après mes études a Lyon.",
+   "Au début je me suis senti un peu perdu,",
+   "mais les gens m'ont vite adopté.",
+   "Et toi Néto, tu es né ici ?",
+   "Oui, je suis né à Saint-Laurent.",
+   "Et je suis allée faire mes études",
+   "en métropole avant de revenir.",
+   "Merci beaucoup Marie pour ce temoignage."
+  ],
+  "capture": true,
+  "answers": {
+   "Vérification des sous-titres FR": [
+    "Plusieurs personnes + capture vidéo (plus précis, plus lent)"
+   ],
+   "Frequence des captures video": [
+    "Auto - adapte a la duree (recommande general)"
+   ],
+   "Nombre de personnes": [
+    "2 personnes"
+   ],
+   "Qui parle ? (": [
+    "Un homme",
+    "Une femme"
+   ],
+   "Précisions sur les personnes": [
+    "Personne 1 = Néto, il interviewe. Personne 2 = Marie, elle répond."
+   ],
+   "Claude a detecte les speakers suivants": [
+    "Confirmer"
+   ],
+   "Vérifie qui parle": [
+    "Confirmer"
+   ],
+   "Résultat de la vérification": [
+    "Voir le rapport"
+   ]
+  }
+ },
+ "propre": {
+  "subs": [
+   "Bonjour à tous,",
+   "je suis ravie d'être parmi vous."
+  ],
+  "answers": {
+   "Vérification des sous-titres FR": [
+    "1 personne : une femme"
+   ],
+   "Résultat de la vérification": [
+    "OK"
+   ]
+  }
+ },
+ "vide": {
+  "subs": [],
+  "answers": {
+   "pas pu aller au bout": [
+    "OK"
+   ]
+  }
+ }
+}

@@ -26,7 +26,7 @@ C'est tout ✅ — les scripts apparaissent dans le menu **Espace de travail (Wo
 
 Dans Resolve, timeline ouverte avec une piste de sous-titres :
 
-1. **Workspace → Scripts → ScanSubtitlesFR** — analyse et affiche le rapport des fautes dans la console.
+1. **Workspace → Scripts → ScanSubtitlesFR** : vérifie les sous-titres (écrits à la main ou générés) sans rien modifier. À la fin, une fenêtre affiche toujours le résultat : « Aucune faute » ou la liste des changements proposés (« senti » → « sentie », avec numéro et timecode). Le bouton **Voir le rapport** ouvre `~/Desktop/Fautes sous-titres FR.html` (phrase complète, mot faux barré en rouge, correction en vert).
 2. **Workspace → Scripts → ApplyCorrectionsFR** — crée la piste FR corrigée (lance le scan d'abord ; le rapport doit dater de moins de 24 h).
 3. **Workspace → Scripts → TranslateSubtitlesFR_EN** — traduit la piste FR en EN sur une nouvelle piste.
 
@@ -64,6 +64,17 @@ mkdir -p ~/.anthropic && echo "sk-ant-..." > ~/.anthropic/api_key && chmod 600 ~
 ```
 
 Les scripts cherchent la clé dans `ANTHROPIC_API_KEY` (env) puis dans `~/.anthropic/api_key` (fichier).
+
+### Tester sans Resolve
+
+`tests/` contient un banc de test : faux Resolve, popups simulées (leur AppleScript est quand même compilé par `osacompile`, sans rien afficher), vrais appels Claude. Rien n'est écrit sur le vrai Bureau.
+
+```bash
+bash tests/run.sh                 # tous les scénarios
+bash tests/run.sh interview       # un seul (voir tests/scenarios.json)
+```
+
+Historique des changements : [CHANGELOG.md](CHANGELOG.md).
 
 ### Reconstruire l'app d'installation
 
